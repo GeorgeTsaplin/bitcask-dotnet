@@ -1,3 +1,5 @@
+using BitcaskDotnet;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Diagnostics.CodeAnalysis;
 
 namespace cask_db.test;
@@ -22,12 +24,14 @@ public abstract class TestBase : IDisposable
     {
         DatabaseDirectory = _DatabaseDirectory ?? CreateTempDirectory();
         
-        db = new CaskDB(new CaskDbOpts
-        {
-            DatabaseDirectory = DatabaseDirectory,
-            DataFileSizeThresholdInBytes = _dataFileSizeThreshold,
-            SoftDeleteDataFiles = _softDeleteDataFiles
-        });
+        db = new CaskDB(
+            new CaskDbOpts
+            {
+                DatabaseDirectory = DatabaseDirectory,
+                DataFileSizeThresholdInBytes = _dataFileSizeThreshold,
+                SoftDeleteDataFiles = _softDeleteDataFiles
+            },
+            NullLogger.Instance);
     }
 
     public void Dispose()

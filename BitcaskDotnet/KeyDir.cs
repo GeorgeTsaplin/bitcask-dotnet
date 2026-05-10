@@ -1,20 +1,19 @@
 using System.Collections.Concurrent;
-using Serilog;
+using Microsoft.Extensions.Logging;
 
-namespace cask_db;
+namespace BitcaskDotnet;
 
-class KeyDir : ConcurrentDictionary<string, FileValue>
+class KeyDir(ILogger logger) : ConcurrentDictionary<string, FileValue>
 {
-    ILogger logger = Log.ForContext<KeyDir>();
     private FileOps _fileOps = new FileOps();
 
-    public void InitializeWithDataFile(FileStream dataFile)
+    public void InitializeWithDataFile(BitcaskStream dataFile)
     {
-        logger.Debug("Initializing keyDir with dataFile {df}", dataFile.Name);
+        logger.LogDebug("Initializing keyDir with dataFile {df}", dataFile.Name);
 
         foreach (var (key, val) in _fileOps.EnumerateFileValues(dataFile))
         {
-            logger.Debug("Read key: {@key} value: {@value}", key, val);
+            logger.LogDebug("Read key: {@key} value: {@value}", key, val);
 
             if (val.ValueSize == 0)
                 this.TryRemove(key, out _);
@@ -23,9 +22,9 @@ class KeyDir : ConcurrentDictionary<string, FileValue>
         }
     }
 
-    public void InitializeWithHintFile(FileStream hintFile, string dataFileName)
+    public void InitializeWithHintFile(BitcaskStream hintFile, string dataFileName)
     {
-        logger.Debug(
+        logger.LogDebug(
             "Initializing keyDir with hintFile :{hf}, dataFileName: {dfn}",
             hintFile.Name,
             dataFileName
@@ -33,7 +32,7 @@ class KeyDir : ConcurrentDictionary<string, FileValue>
 
         foreach (var (key, val) in _fileOps.EnumerateHintFileRecords(hintFile))
         {
-            logger.Debug("Read key: {@key} value: {@value}", key, val);
+            logger.LogDebug("Read key: {@key} value: {@value}", key, val);
             val.FileId = dataFileName;
             this[key] = val;
         }

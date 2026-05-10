@@ -1,13 +1,10 @@
 using System.Buffers.Binary;
 using System.Text;
-using Serilog;
 
-namespace cask_db;
+namespace BitcaskDotnet;
 
 class FileOps
 {
-    ILogger logger = Log.ForContext<FileOps>();
-
     public WriteResult WriteRecord(FileStream fs, string key, string? val)
     {
         long initialPosition = fs.Position;
@@ -88,7 +85,7 @@ class FileOps
         fs.Write(keyBuffer);
     }
 
-    public string? ReadValueAtPosition(FileStream fs, int valueLen, long position)
+    public string? ReadValueAtPosition(Stream fs, int valueLen, long position)
     {
         if (valueLen == 0)
             return null;
@@ -103,12 +100,12 @@ class FileOps
         return Encoding.UTF8.GetString(valueBuffer);
     }
 
-    public (string key, FileValue fileValue)? ReadFileValue(FileStream fs)
+    public (string key, FileValue fileValue)? ReadFileValue(BitcaskStream fs)
     {
         return ReadFileValueAtPosition(fs, fs.Position);
     }
 
-    private (string, FileValue)? ReadFileValueAtPosition(FileStream fs, long position)
+    private (string, FileValue)? ReadFileValueAtPosition(BitcaskStream fs, long position)
     {
         if (fs.Position != position)
             fs.Seek(position, SeekOrigin.Begin);
@@ -136,7 +133,7 @@ class FileOps
         return (key, fileValue);
     }
 
-    public IEnumerable<(string key, FileValue fileValue)> EnumerateFileValues(FileStream fs)
+    public IEnumerable<(string key, FileValue fileValue)> EnumerateFileValues(BitcaskStream fs)
     {
         var entry = ReadFileValue(fs);
 
@@ -147,7 +144,7 @@ class FileOps
         }
     }
 
-    public IEnumerable<(string key, FileValue fileValue)> EnumerateHintFileRecords(FileStream fs)
+    public IEnumerable<(string key, FileValue fileValue)> EnumerateHintFileRecords(BitcaskStream fs)
     {
         var entry = ReadHintRecord(fs);
 
@@ -158,7 +155,7 @@ class FileOps
         }
     }
 
-    public (string key, FileValue fileValue)? ReadHintRecord(FileStream fs)
+    private (string key, FileValue fileValue)? ReadHintRecord(Stream fs)
     {
         Span<byte> lengths = new byte[16]; // 2 lengths + 1 offset
 
@@ -179,7 +176,7 @@ class FileOps
         return (key, new FileValue { ValuePosition = valuePosition, ValueSize = valueLen, });
     }
 
-    public (string key, RecordValue recordValue)? ReadRecordValue(FileStream fs)
+    private (string key, RecordValue recordValue)? ReadRecordValue(Stream fs, string fileName)
     {
         var lengths = ReadLengths(fs);
         if (lengths == null)
@@ -200,7 +197,7 @@ class FileOps
         {
             ValuePosition = fs.Position - valueLen,
             ValueSize = valueLen,
-            FileId = fs.Name,
+            FileId = fileName,
             Value = value
         };
 
@@ -209,16 +206,16 @@ class FileOps
 
     public IEnumerable<(string key, RecordValue fileValue)> EnumerateRecordValues(FileStream fs)
     {
-        var entry = ReadRecordValue(fs);
+        var entry = ReadRecordValue(fs, fs.Name);
 
         while (entry != null)
         {
             yield return entry.Value;
-            entry = ReadRecordValue(fs);
+            entry = ReadRecordValue(fs, fs.Name);
         }
     }
 
-    private (int, int)? ReadLengths(FileStream fs)
+    private (int, int)? ReadLengths(Stream fs)
     {
         Span<byte> lengths = new byte[8]; // 2 lengths
 

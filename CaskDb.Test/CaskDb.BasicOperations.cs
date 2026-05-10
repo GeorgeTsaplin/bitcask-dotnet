@@ -1,6 +1,7 @@
 namespace cask_db.test;
 
-using cask_db;
+using BitcaskDotnet;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 public class BasicOperations : TestBase
@@ -30,10 +31,12 @@ public class BasicOperations : TestBase
         Assert.Equal("v3", db.Get("k2"));
 
         db.Dispose();
-        db = new CaskDB(new CaskDbOpts
-        {
-            DatabaseDirectory = DatabaseDirectory,
-        });
+        db = new CaskDB(
+            new CaskDbOpts
+            {
+                DatabaseDirectory = DatabaseDirectory,
+            },
+            NullLogger.Instance);
         Assert.Equal("v2", db.Get("k1"));
         Assert.Equal("v3", db.Get("k2"));
     }
@@ -58,10 +61,12 @@ public class BasicOperations : TestBase
         Assert.Null(db.Get("k1"));
 
         db.Dispose();
-        db = new CaskDB(new CaskDbOpts
-        {
-            DatabaseDirectory = DatabaseDirectory,
-        });
+        db = new CaskDB(
+            new CaskDbOpts
+            {
+                DatabaseDirectory = DatabaseDirectory,
+            },
+            NullLogger.Instance);
 
         Assert.Null(db.Get("k1"));
     }
@@ -76,10 +81,12 @@ public class BasicOperations : TestBase
         db.Put("k1", "v2");
 
         db.Dispose();
-        db = new CaskDB(new CaskDbOpts
-        {
-            DatabaseDirectory = DatabaseDirectory,
-        });
+        db = new CaskDB(
+            new CaskDbOpts
+            {
+                DatabaseDirectory = DatabaseDirectory,
+            },
+            NullLogger.Instance);
 
         Assert.Equal("v2", db.Get("k1"));
     }

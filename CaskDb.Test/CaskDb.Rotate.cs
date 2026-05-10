@@ -1,3 +1,4 @@
+using BitcaskDotnet;
 using Xunit;
 
 namespace cask_db.test;

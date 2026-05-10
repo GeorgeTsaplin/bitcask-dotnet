@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace cask_db;
+namespace BitcaskDotnet;
 
 class LockManager
 {

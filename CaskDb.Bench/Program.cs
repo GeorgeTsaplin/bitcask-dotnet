@@ -1,6 +1,9 @@
 ﻿using System.Text;
 using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Running;
+using BitcaskDotnet;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CaskDb.Bench;
 
@@ -77,11 +80,104 @@ public class MemoryBenchmarkerDemo
 
 }
 
+public class CascDbBenchmark
+{
+    private const int DataAmount = 100_000;
+    private const int ReadOps = 300;
+
+#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
+    private string _dbDir;
+    private Dictionary<string, string> _data;
+    private CaskDB _db;
+    private CaskDB _dbInMemoryRO;
+#pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _data = Enumerable.Range(0, DataAmount)
+            .ToDictionary(ks => ks.ToString(), vs => Guid.NewGuid().ToString("N"));
+
+        _dbDir = $"cdb/{DateTime.UtcNow:yyyy-MM-dd--HH-mm-ss-ffff}";
+
+        var db = new CaskDB(
+            new() { DatabaseDirectory = _dbDir },
+            NullLogger.Instance);
+
+        foreach (var item in _data)
+        {
+            db.Put(item.Key, item.Value);
+        }
+        db.Sync();
+        db.Dispose();
+
+        _dbInMemoryRO = new CaskDB(
+            new()
+            {
+                DatabaseDirectory = _dbDir,
+                UseMemoryMappedFiles = true
+            },
+            NullLogger.Instance);
+
+        _db = new CaskDB(
+            new() { DatabaseDirectory = _dbDir },
+            NullLogger.Instance);
+    }
+
+    [GlobalCleanup]
+    public void Cleanup()
+    {
+        _dbInMemoryRO.Dispose();
+        _db.Dispose();
+
+        //Directory.Delete(_dbDir);
+    }
+
+    [Benchmark(Baseline = true)]
+    public void ReadFromDictionary()
+    {
+        for(int i = 0; i < ReadOps; i++)
+        {
+            var key = Random.Shared.Next(0, DataAmount).ToString();
+
+            if (!_data.TryGetValue(key, out _))
+            {
+                throw new ApplicationException("Could not get value from memory");
+            }
+        }
+    }
+
+    [Benchmark]
+    public void ReadFromBitcaskDb()
+    {
+        for (int i = 0; i < ReadOps; i++)
+        {
+            var key = Random.Shared.Next(0, DataAmount).ToString();
+
+            _ = _db.Get(key)
+                ?? throw new ApplicationException("Could not get value from DB");
+        }
+    }
+
+    [Benchmark]
+    public void ReadFromInMemoryBitcaskDb()
+    {
+        for (int i = 0; i < ReadOps; i++)
+        {
+            var key = Random.Shared.Next(0, DataAmount).ToString();
+
+            _ = _dbInMemoryRO.Get(key)
+                ?? throw new ApplicationException("Could not get value from in-memory DB");
+        }
+    }
+}
+
 
 class Program
 {
     static void Main(string[] args)
     {
-        var summary = BenchmarkRunner.Run<MemoryBenchmarkerDemo>();
+        //var summary = BenchmarkRunner.Run<MemoryBenchmarkerDemo>();
+        var summary = BenchmarkRunner.Run<CascDbBenchmark>(/*new DebugInProcessConfig()*/);
     }
 }

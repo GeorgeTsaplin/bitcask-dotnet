@@ -1,11 +1,13 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Diagnostics.CodeAnalysis;
-using Serilog;
+using System.IO.MemoryMappedFiles;
 
-namespace cask_db;
+namespace BitcaskDotnet;
 
 public class CaskDB : IDisposable
 {
-    ILogger logger = Log.ForContext<CaskDB>();
+    ILogger logger;
 
     FileOps FileOps;
 
@@ -15,7 +17,8 @@ public class CaskDB : IDisposable
     FileStream? MergeFileStream;
 
     List<string> DataFiles;
-    Dictionary<string, FileStream> ReadFileHandles;
+    Dictionary<string, BitcaskStream> ReadFileHandles;
+    Dictionary<string, MemoryMappedFile> MemoryMappedFiles;
     KeyDir KeyDir;
     int BytesWrittenSinceLastRotate;
 
@@ -31,12 +34,15 @@ public class CaskDB : IDisposable
     LockManager LockManager;
     private readonly CaskDbOpts opts;
 
-    public CaskDB(CaskDbOpts opts)
+    public CaskDB(CaskDbOpts opts, ILogger logger)
     {
+        this.logger = logger;
+
         this.opts = opts;
         InitializeDataDirectory(opts.DatabaseDirectory);
 
         ReadFileHandles = new();
+        MemoryMappedFiles = new();
         FileOps = new();
         LockManager = new();
 
@@ -47,6 +53,10 @@ public class CaskDB : IDisposable
         InitializeActiveFile();
     }
 
+    public CaskDB(CaskDbOpts opts)
+        : this(opts, NullLogger.Instance)
+    { }
+
     [MemberNotNull(nameof(DataFiles))]
     private void InitializeDataDirectory(string _DatabaseDirectory)
     {
@@ -55,9 +65,9 @@ public class CaskDB : IDisposable
         DataFiles = Directory.EnumerateFiles(opts.DatabaseDirectory, "*.data").ToList();
         DataFiles.Sort();
 
-        logger.Information(
+        logger.LogInformation(
             "Found {count} files in {databaseDir}: {@datafiles}",
-            DataFiles.Count(),
+            DataFiles.Count,
             opts.DatabaseDirectory,
             DataFiles
         );
@@ -66,17 +76,17 @@ public class CaskDB : IDisposable
     [MemberNotNull(nameof(KeyDir))]
     private void InitializeKeyDir(List<string> dataFiles)
     {
-        KeyDir = new KeyDir();
+        KeyDir = new KeyDir(this.logger);
         foreach (var file in dataFiles)
         {
             if (HintFileExists(file, out string hintfile))
             {
-                FileStream fs = GetReadFileStream(hintfile);
+                var fs = GetReadFileStream(hintfile);
                 KeyDir.InitializeWithHintFile(fs, file);
             }
             else
             {
-                FileStream fs = GetReadFileStream(file);
+                var fs = GetReadFileStream(file);
                 KeyDir.InitializeWithDataFile(fs);
             }
         }
@@ -97,7 +107,7 @@ public class CaskDB : IDisposable
         ActiveFileName = activeFileIndex.ToString("000000000000") + ".data";
         ActiveFileName = Path.Join(opts.DatabaseDirectory, ActiveFileName);
 
-        logger.Information($"new active filename {ActiveFileName}");
+        logger.LogInformation($"new active filename {ActiveFileName}");
 
         ActiveFileStream = File.Open(
             ActiveFileName,
@@ -141,11 +151,20 @@ public class CaskDB : IDisposable
             File.Delete(dataFile);
     }
 
-    private FileStream GetReadFileStream(string file)
+    private BitcaskStream GetReadFileStream(string file)
     {
         if (!ReadFileHandles.TryGetValue(file, out var fs))
         {
-            fs = File.Open(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            if (opts.UseMemoryMappedFiles)
+            {
+                var mmf = MemoryMappedFile.CreateFromFile(file, FileMode.Open);
+                fs = new(mmf.CreateViewStream(), file);
+            }
+            else
+            {
+                fs = new(File.Open(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
+            }
+
             ReadFileHandles[file] = fs;
         }
 
@@ -154,7 +173,7 @@ public class CaskDB : IDisposable
 
     public void DumpKeyDir()
     {
-        logger.Debug("KeyDir state: {@keyDir}", this.KeyDir);
+        logger.LogDebug("KeyDir state: {@keyDir}", this.KeyDir);
     }
 
     public string? Get(string key)
@@ -162,7 +181,7 @@ public class CaskDB : IDisposable
         if (!KeyDir.TryGetValue(key, out var val))
             return null;
 
-        logger.Debug("Found {key} = {@val} in keydir", key, val);
+        logger.LogDebug("Found {key} = {@val} in keydir", key, val);
 
         var readFileStream = GetReadFileStream(val.FileId ?? throw new ArgumentException());
 
@@ -199,7 +218,7 @@ public class CaskDB : IDisposable
 
                 if (BytesWrittenSinceLastRotate >= opts.DataFileSizeThresholdInBytes)
                 {
-                    logger.Debug(
+                    logger.LogDebug(
                         "Auto rotated data file, bytesWrittenSinceLastRotate: {}",
                         BytesWrittenSinceLastRotate
                     );
@@ -353,7 +372,7 @@ public class CaskDB : IDisposable
         if (keyDirEntryIndex < fileEntryIndex)
         {
             // should not happen
-            logger.Error(
+            logger.LogError(
                 "FileId in keyDir older than the one in file. Key: {@key}, fileValue: {@fileVal}, keyDirValue: {@keyDirVal}",
                 fileEntry.key,
                 fileEntry,
@@ -376,7 +395,7 @@ public class CaskDB : IDisposable
         if (keyDirEntry.ValuePosition < fileEntry.value.ValuePosition)
         {
             // should not happen
-            logger.Error(
+            logger.LogError(
                 "Position in keyDir older than the one in file. Key: {@key}, fileValue: {@fileVal}, keyDirValue: {@keyDirVal}",
                 fileEntry.key,
                 fileEntry,
@@ -415,6 +434,10 @@ public class CaskDB : IDisposable
                 fileHandle.Flush();
                 fileHandle.Close();
             }
+            foreach (var mmf in MemoryMappedFiles.Values)
+            {
+                mmf.Dispose();
+            }
         }
         catch (ObjectDisposedException)
         {
@@ -423,6 +446,7 @@ public class CaskDB : IDisposable
         finally
         {
             ReadFileHandles = new();
+            MemoryMappedFiles = new();
             GC.SuppressFinalize(this);
         }
     }

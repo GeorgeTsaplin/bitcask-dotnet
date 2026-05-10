@@ -1,4 +1,4 @@
-namespace cask_db;
+namespace BitcaskDotnet;
 
 // For debugging only
 class Record

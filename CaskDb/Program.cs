@@ -1,10 +1,6 @@
-﻿using System.Buffers.Binary;
-using System.Diagnostics;
-using System.Diagnostics.Tracing;
-using System.Text;
-using System.Text.Json;
-using System.Threading.Channels;
+﻿using BitcaskDotnet;
 using Serilog;
+using System.Diagnostics;
 
 namespace cask_db;
 
@@ -63,7 +59,8 @@ class Program
             {
                 DatabaseDirectory = dbDir,
                 DataFileSizeThresholdInBytes = 5 * 1024 * 1024
-            }
+            },
+            new Serilog.Extensions.Logging.SerilogLoggerProvider(Log.Logger).CreateLogger("CaskDB")
         );
 
         using (var _ = new StopwatchLog("write async c=1M"))
@@ -90,7 +87,8 @@ class Program
                 DatabaseDirectory = dbDir,
                 DataFileSizeThresholdInBytes = 5 * 1024 * 1024,
                 UseSynchronousWrites = true
-            }
+            },
+            new Serilog.Extensions.Logging.SerilogLoggerProvider(Log.Logger).CreateLogger("CaskDB")
         );
 
         using (var _ = new StopwatchLog("write sync c=1M"))
@@ -112,7 +110,8 @@ class Program
             {
                 DatabaseDirectory = dbDir,
                 DataFileSizeThresholdInBytes = 5 * 1024 * 1024
-            }
+            },
+            new Serilog.Extensions.Logging.SerilogLoggerProvider(Log.Logger).CreateLogger("CaskDB")
         );
 
         using (var _ = new StopwatchLog("read c=1M"))
