@@ -1,9 +1,9 @@
-﻿using System.Text;
-using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Configs;
+﻿using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Running;
 using BitcaskDotnet;
 using Microsoft.Extensions.Logging.Abstractions;
+using ProtoBuf;
+using System.Text;
 
 namespace CaskDb.Bench;
 
@@ -87,7 +87,7 @@ public class CascDbBenchmark
 
 #pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
     private string _dbDir;
-    private Dictionary<string, string> _data;
+    private Dictionary<string, SampleData> _data;
     private CaskDB _db;
     private CaskDB _dbInMemoryRO;
 #pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
@@ -96,7 +96,14 @@ public class CascDbBenchmark
     public void Setup()
     {
         _data = Enumerable.Range(0, DataAmount)
-            .ToDictionary(ks => ks.ToString(), vs => Guid.NewGuid().ToString("N"));
+            .ToDictionary(
+                ks => ks.ToString(),
+                vs => new SampleData
+                {
+                    Name = $"name#{vs}",
+                    I18N = Enumerable.Range(0, Random.Shared.Next(1, 2))
+                        .ToDictionary(ks => $"loc#{ks}", vs => Guid.NewGuid().ToString("N"))
+                });
 
         _dbDir = $"cdb/{DateTime.UtcNow:yyyy-MM-dd--HH-mm-ss-ffff}";
 
@@ -106,7 +113,9 @@ public class CascDbBenchmark
 
         foreach (var item in _data)
         {
-            db.Put(item.Key, item.Value);
+            using var ms = new MemoryStream();
+            ProtoBuf.Serializer.Serialize(ms, item.Value);
+            db.Put(item.Key, Convert.ToBase64String(ms.ToArray()));
         }
         db.Sync();
         db.Dispose();
@@ -154,8 +163,12 @@ public class CascDbBenchmark
         {
             var key = Random.Shared.Next(0, DataAmount).ToString();
 
-            _ = _db.Get(key)
+            var str = _db.Get(key)
                 ?? throw new ApplicationException("Could not get value from DB");
+            var value = DeserializeProto<SampleData>(str);
+#pragma warning disable IDE0059 // Unnecessary assignment of a value
+            var tmp = value;
+#pragma warning restore IDE0059 // Unnecessary assignment of a value
         }
     }
 
@@ -166,9 +179,30 @@ public class CascDbBenchmark
         {
             var key = Random.Shared.Next(0, DataAmount).ToString();
 
-            _ = _dbInMemoryRO.Get(key)
+            var str = _dbInMemoryRO.Get(key)
                 ?? throw new ApplicationException("Could not get value from in-memory DB");
+            var value = DeserializeProto<SampleData>(str);
+#pragma warning disable IDE0059 // Unnecessary assignment of a value
+            var tmp = value;
+#pragma warning restore IDE0059 // Unnecessary assignment of a value
         }
+    }
+
+    private static T DeserializeProto<T>(string base64string)
+    {
+        byte[] bytes = Convert.FromBase64String(base64string);
+        using var ms = new MemoryStream(bytes);
+        return ProtoBuf.Serializer.Deserialize<T>(ms);
+    }
+
+    [ProtoContract]
+    public class SampleData
+    {
+        [ProtoMember(1)]
+        public string Name { get; set; } = null!;
+
+        [ProtoMember(2)]
+        public Dictionary<string, string> I18N { get; set; } = null!;
     }
 }
 
