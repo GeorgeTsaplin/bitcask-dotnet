@@ -1,6 +1,6 @@
 namespace BitcaskDotnet;
 
-public class CaskDbOpts
+public class CaskDbOpts<TData>(ISerializer<TData> serializer)
 {
     public required string DatabaseDirectory { get; set; }
     public int DataFileSizeThresholdInBytes { get; init; } = 16 * 1024 * 1024;
@@ -8,4 +8,13 @@ public class CaskDbOpts
     public bool UseSynchronousWrites { get; init; } = false;
 
     public bool UseMemoryMappedFiles { get; init; } = false;
+
+    public ISerializer<TData> Serializer => serializer;
+}
+
+public class CaskDbOpts : CaskDbOpts<string>
+{
+    public CaskDbOpts() : base(new StringSerializer())
+    {
+    }
 }

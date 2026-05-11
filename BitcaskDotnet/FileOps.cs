@@ -5,6 +5,98 @@ namespace BitcaskDotnet;
 
 class FileOps
 {
+    public IEnumerable<(string key, FileValue fileValue)> EnumerateHintFileRecords(BitcaskStream fs)
+    {
+        var entry = ReadHintRecord(fs);
+
+        while (entry != null)
+        {
+            yield return entry.Value;
+            entry = ReadHintRecord(fs);
+        }
+    }
+
+    public IEnumerable<(string key, FileValue fileValue)> EnumerateFileValues(BitcaskStream fs)
+    {
+        var entry = ReadFileValue(fs);
+
+        while (entry != null)
+        {
+            yield return entry.Value;
+            entry = ReadFileValueAtPosition(fs, fs.Position + entry.Value.fileValue.ValueSize);
+        }
+    }
+
+    private (string key, FileValue fileValue)? ReadHintRecord(Stream fs)
+    {
+        Span<byte> lengths = new byte[16]; // 2 lengths + 1 offset
+
+        if (fs.Read(lengths) < 16)
+            return null;
+
+        int keyLen = BinaryPrimitives.ReadInt32BigEndian(lengths.Slice(0, 4));
+        int valueLen = BinaryPrimitives.ReadInt32BigEndian(lengths.Slice(4, 4));
+        long valuePosition = BinaryPrimitives.ReadInt64BigEndian(lengths.Slice(8, 8));
+
+        byte[] keyBuf = new byte[keyLen];
+
+        if (fs.Read(keyBuf) < keyLen)
+            return null;
+
+        string key = Encoding.UTF8.GetString(keyBuf);
+
+        return (key, new FileValue { ValuePosition = valuePosition, ValueSize = valueLen, });
+    }
+
+    private (string key, FileValue fileValue)? ReadFileValue(BitcaskStream fs)
+    {
+        return ReadFileValueAtPosition(fs, fs.Position);
+    }
+
+    private (string, FileValue)? ReadFileValueAtPosition(BitcaskStream fs, long position)
+    {
+        if (fs.Position != position)
+            fs.Seek(position, SeekOrigin.Begin);
+
+        var lengths = ReadLengths(fs);
+        if (lengths == null)
+            return null;
+
+        var (keyLen, valueLen) = lengths.Value;
+
+        // read key
+        byte[] keyBuffer = new byte[keyLen];
+        if (fs.Read(keyBuffer) < keyLen)
+            return null;
+
+        string key = Encoding.UTF8.GetString(keyBuffer);
+
+        var fileValue = new FileValue
+        {
+            ValuePosition = fs.Position,
+            ValueSize = valueLen,
+            FileId = fs.Name
+        };
+
+        return (key, fileValue);
+    }
+
+    protected (int, int)? ReadLengths(Stream fs)
+    {
+        Span<byte> lengths = new byte[8]; // 2 lengths
+
+        if (fs.Read(lengths) < 8)
+            return null;
+
+        int keyLen = BinaryPrimitives.ReadInt32BigEndian(lengths.Slice(0, 4));
+        int valueLen = BinaryPrimitives.ReadInt32BigEndian(lengths.Slice(4, 4));
+
+        return (keyLen, valueLen);
+    }
+}
+
+class FileOps<TData>(ISerializer<TData> _serializer) : FileOps
+{
     public WriteResult WriteRecord(FileStream fs, string key, string? val)
     {
         long initialPosition = fs.Position;
@@ -40,7 +132,7 @@ class FileOps
 
     byte[] buffer = new byte[400 * 1024]; // 400 Kb max
 
-    public WriteResult WriteRecordSingleBuffer(FileStream fs, string key, string? val)
+    public WriteResult WriteRecordSingleBuffer(FileStream fs, string key, TData? val)
     {
         long initialPosition = fs.Position;
 
@@ -50,7 +142,9 @@ class FileOps
         int valueLen = 0;
 
         if (val != null)
-            valueLen = Encoding.UTF8.GetBytes(val, buf.Slice(8 + keyLen));
+        {
+            valueLen = _serializer.SerializeTo(val, buf.Slice(8 + keyLen));
+        }
 
         BinaryPrimitives.WriteInt32BigEndian(buf.Slice(0, 4), keyLen);
         BinaryPrimitives.WriteInt32BigEndian(buf.Slice(4, 4), valueLen);
@@ -85,95 +179,22 @@ class FileOps
         fs.Write(keyBuffer);
     }
 
-    public string? ReadValueAtPosition(Stream fs, int valueLen, long position)
+    public TData? ReadValueAtPosition(
+        Stream fs,
+        int valueLen,
+        long position)
     {
         if (valueLen == 0)
-            return null;
+            return default;
 
         if (fs.Position != position)
             fs.Seek(position, SeekOrigin.Begin);
 
         byte[] valueBuffer = new byte[valueLen];
         if (fs.Read(valueBuffer) < valueLen)
-            return null;
+            return default;
 
-        return Encoding.UTF8.GetString(valueBuffer);
-    }
-
-    public (string key, FileValue fileValue)? ReadFileValue(BitcaskStream fs)
-    {
-        return ReadFileValueAtPosition(fs, fs.Position);
-    }
-
-    private (string, FileValue)? ReadFileValueAtPosition(BitcaskStream fs, long position)
-    {
-        if (fs.Position != position)
-            fs.Seek(position, SeekOrigin.Begin);
-
-        var lengths = ReadLengths(fs);
-        if (lengths == null)
-            return null;
-
-        var (keyLen, valueLen) = lengths.Value;
-
-        // read key
-        byte[] keyBuffer = new byte[keyLen];
-        if (fs.Read(keyBuffer) < keyLen)
-            return null;
-
-        string key = Encoding.UTF8.GetString(keyBuffer);
-
-        var fileValue = new FileValue
-        {
-            ValuePosition = fs.Position,
-            ValueSize = valueLen,
-            FileId = fs.Name
-        };
-
-        return (key, fileValue);
-    }
-
-    public IEnumerable<(string key, FileValue fileValue)> EnumerateFileValues(BitcaskStream fs)
-    {
-        var entry = ReadFileValue(fs);
-
-        while (entry != null)
-        {
-            yield return entry.Value;
-            entry = ReadFileValueAtPosition(fs, fs.Position + entry.Value.fileValue.ValueSize);
-        }
-    }
-
-    public IEnumerable<(string key, FileValue fileValue)> EnumerateHintFileRecords(BitcaskStream fs)
-    {
-        var entry = ReadHintRecord(fs);
-
-        while (entry != null)
-        {
-            yield return entry.Value;
-            entry = ReadHintRecord(fs);
-        }
-    }
-
-    private (string key, FileValue fileValue)? ReadHintRecord(Stream fs)
-    {
-        Span<byte> lengths = new byte[16]; // 2 lengths + 1 offset
-
-        if (fs.Read(lengths) < 16)
-            return null;
-
-        int keyLen = BinaryPrimitives.ReadInt32BigEndian(lengths.Slice(0, 4));
-        int valueLen = BinaryPrimitives.ReadInt32BigEndian(lengths.Slice(4, 4));
-        long valuePosition = BinaryPrimitives.ReadInt64BigEndian(lengths.Slice(8, 8));
-
-        byte[] keyBuf = new byte[keyLen];
-
-        if (fs.Read(keyBuf) < keyLen)
-            return null;
-
-        string key = Encoding.UTF8.GetString(keyBuf);
-
-        return (key, new FileValue { ValuePosition = valuePosition, ValueSize = valueLen, });
+        return _serializer.Deserialize(valueBuffer);
     }
 
     private (string key, RecordValue recordValue)? ReadRecordValue(Stream fs, string fileName)
@@ -213,19 +234,6 @@ class FileOps
             yield return entry.Value;
             entry = ReadRecordValue(fs, fs.Name);
         }
-    }
-
-    private (int, int)? ReadLengths(Stream fs)
-    {
-        Span<byte> lengths = new byte[8]; // 2 lengths
-
-        if (fs.Read(lengths) < 8)
-            return null;
-
-        int keyLen = BinaryPrimitives.ReadInt32BigEndian(lengths.Slice(0, 4));
-        int valueLen = BinaryPrimitives.ReadInt32BigEndian(lengths.Slice(4, 4));
-
-        return (keyLen, valueLen);
     }
 
     #region debug

@@ -5,11 +5,23 @@ using System.IO.MemoryMappedFiles;
 
 namespace BitcaskDotnet;
 
-public class CaskDB : IDisposable
+public class CaskDB : CaskDB<string>
+{
+    public CaskDB(CaskDbOpts opts) : base(opts)
+    {
+    }
+
+    public CaskDB(CaskDbOpts opts, ILogger logger)
+        : base(opts, logger)
+    {
+    }
+}
+
+public class CaskDB<TData> : IDisposable
 {
     ILogger logger;
 
-    FileOps FileOps;
+    FileOps<TData> FileOps;
 
     string ActiveFileName;
 
@@ -32,9 +44,9 @@ public class CaskDB : IDisposable
     object FileMergeLock = new object();
 
     LockManager LockManager;
-    private readonly CaskDbOpts opts;
+    private readonly CaskDbOpts<TData> opts;
 
-    public CaskDB(CaskDbOpts opts, ILogger logger)
+    public CaskDB(CaskDbOpts<TData> opts, ILogger logger)
     {
         this.logger = logger;
 
@@ -43,7 +55,7 @@ public class CaskDB : IDisposable
 
         ReadFileHandles = new();
         MemoryMappedFiles = new();
-        FileOps = new();
+        FileOps = new(opts.Serializer);
         LockManager = new();
 
         BytesWrittenSinceLastRotate = 0;
@@ -53,7 +65,7 @@ public class CaskDB : IDisposable
         InitializeActiveFile();
     }
 
-    public CaskDB(CaskDbOpts opts)
+    public CaskDB(CaskDbOpts<TData> opts)
         : this(opts, NullLogger.Instance)
     { }
 
@@ -176,10 +188,10 @@ public class CaskDB : IDisposable
         logger.LogDebug("KeyDir state: {@keyDir}", this.KeyDir);
     }
 
-    public string? Get(string key)
+    public TData? Get(string key)
     {
         if (!KeyDir.TryGetValue(key, out var val))
-            return null;
+            return default;
 
         logger.LogDebug("Found {key} = {@val} in keydir", key, val);
 
@@ -202,7 +214,7 @@ public class CaskDB : IDisposable
         }
     }
 
-    public void Put(string key, string? val)
+    public void Put(string key, TData? val)
     {
         lock (LockManager.GetLockObject(key))
         {
@@ -236,7 +248,7 @@ public class CaskDB : IDisposable
 
     public void Delete(string key)
     {
-        this.Put(key, null);
+        this.Put(key, default);
     }
 
     public void RotateDataFile()

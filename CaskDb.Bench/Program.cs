@@ -3,6 +3,7 @@ using BenchmarkDotNet.Running;
 using BitcaskDotnet;
 using Microsoft.Extensions.Logging.Abstractions;
 using ProtoBuf;
+using ProtoBuf.Meta;
 using System.Text;
 
 namespace CaskDb.Bench;
@@ -88,8 +89,8 @@ public class CascDbBenchmark
 #pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
     private string _dbDir;
     private Dictionary<string, SampleData> _data;
-    private CaskDB _db;
-    private CaskDB _dbInMemoryRO;
+    private CaskDB<SampleData> _db;
+    private CaskDB<SampleData> _dbInMemoryRO;
 #pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
 
     [GlobalSetup]
@@ -107,30 +108,39 @@ public class CascDbBenchmark
 
         _dbDir = $"cdb/{DateTime.UtcNow:yyyy-MM-dd--HH-mm-ss-ffff}";
 
-        var db = new CaskDB(
-            new() { DatabaseDirectory = _dbDir },
+        var serializer = new SampleDataSerializer();
+
+        var db = new CaskDB<SampleData>(
+            new(serializer)
+            {
+                DatabaseDirectory = _dbDir
+            },
             NullLogger.Instance);
 
         foreach (var item in _data)
         {
-            using var ms = new MemoryStream();
-            ProtoBuf.Serializer.Serialize(ms, item.Value);
-            db.Put(item.Key, Convert.ToBase64String(ms.ToArray()));
+            db.Put(item.Key, item.Value);
         }
         db.Sync();
         db.Dispose();
 
-        _dbInMemoryRO = new CaskDB(
-            new()
+        _dbInMemoryRO = new CaskDB<SampleData>(
+            new(serializer)
             {
                 DatabaseDirectory = _dbDir,
                 UseMemoryMappedFiles = true
             },
             NullLogger.Instance);
 
-        _db = new CaskDB(
-            new() { DatabaseDirectory = _dbDir },
+        _db = new CaskDB<SampleData>(
+            new(serializer)
+            {
+                DatabaseDirectory = _dbDir,
+            },
             NullLogger.Instance);
+
+        _ = _dbInMemoryRO.Get(_data.First().Key);
+        _ = _db.Get(_data.First().Key);
     }
 
     [GlobalCleanup]
@@ -163,12 +173,8 @@ public class CascDbBenchmark
         {
             var key = Random.Shared.Next(0, DataAmount).ToString();
 
-            var str = _db.Get(key)
+            _ = _db.Get(key)
                 ?? throw new ApplicationException("Could not get value from DB");
-            var value = DeserializeProto<SampleData>(str);
-#pragma warning disable IDE0059 // Unnecessary assignment of a value
-            var tmp = value;
-#pragma warning restore IDE0059 // Unnecessary assignment of a value
         }
     }
 
@@ -179,20 +185,9 @@ public class CascDbBenchmark
         {
             var key = Random.Shared.Next(0, DataAmount).ToString();
 
-            var str = _dbInMemoryRO.Get(key)
+            _ = _dbInMemoryRO.Get(key)
                 ?? throw new ApplicationException("Could not get value from in-memory DB");
-            var value = DeserializeProto<SampleData>(str);
-#pragma warning disable IDE0059 // Unnecessary assignment of a value
-            var tmp = value;
-#pragma warning restore IDE0059 // Unnecessary assignment of a value
         }
-    }
-
-    private static T DeserializeProto<T>(string base64string)
-    {
-        byte[] bytes = Convert.FromBase64String(base64string);
-        using var ms = new MemoryStream(bytes);
-        return ProtoBuf.Serializer.Deserialize<T>(ms);
     }
 
     [ProtoContract]
@@ -204,6 +199,21 @@ public class CascDbBenchmark
         [ProtoMember(2)]
         public Dictionary<string, string> I18N { get; set; } = null!;
     }
+
+    private class SampleDataSerializer : ISerializer<SampleData>
+    {
+        public SampleData Deserialize(Span<byte> bytes)
+            => ProtoBuf.Serializer.Deserialize<SampleData>(bytes);
+
+        public int SerializeTo(SampleData value, Span<byte> bytes)
+        {
+            // TODO: optimize
+            using var ms = new MemoryStream();
+            ProtoBuf.Serializer.Serialize(ms, value);
+            ms.Position = 0;
+            return ms.Read(bytes);
+        }
+    }
 }
 
 
@@ -212,6 +222,6 @@ class Program
     static void Main(string[] args)
     {
         //var summary = BenchmarkRunner.Run<MemoryBenchmarkerDemo>();
-        var summary = BenchmarkRunner.Run<CascDbBenchmark>(/*new DebugInProcessConfig()*/);
+        var summary = BenchmarkRunner.Run<CascDbBenchmark>(/*new BenchmarkDotNet.Configs.DebugInProcessConfig()*/);
     }
 }

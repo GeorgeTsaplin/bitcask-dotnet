@@ -32,7 +32,7 @@ public class BasicOperations : TestBase
 
         db.Dispose();
         db = new CaskDB(
-            new CaskDbOpts
+            new()
             {
                 DatabaseDirectory = DatabaseDirectory,
             },
@@ -62,7 +62,7 @@ public class BasicOperations : TestBase
 
         db.Dispose();
         db = new CaskDB(
-            new CaskDbOpts
+            new()
             {
                 DatabaseDirectory = DatabaseDirectory,
             },
@@ -82,7 +82,7 @@ public class BasicOperations : TestBase
 
         db.Dispose();
         db = new CaskDB(
-            new CaskDbOpts
+            new()
             {
                 DatabaseDirectory = DatabaseDirectory,
             },

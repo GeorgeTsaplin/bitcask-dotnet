@@ -7,7 +7,7 @@ namespace cask_db.test;
 public abstract class TestBase : IDisposable
 {
     protected string DatabaseDirectory;
-    protected CaskDB db;
+    protected CaskDB<string> db;
 
     public TestBase()
     {
@@ -25,7 +25,7 @@ public abstract class TestBase : IDisposable
         DatabaseDirectory = _DatabaseDirectory ?? CreateTempDirectory();
         
         db = new CaskDB(
-            new CaskDbOpts
+            new()
             {
                 DatabaseDirectory = DatabaseDirectory,
                 DataFileSizeThresholdInBytes = _dataFileSizeThreshold,

@@ -55,7 +55,7 @@ class Program
         var keylist = Enumerable.Range(0, keyCount).Select(x => (x % 10000).ToString()).ToArray();
 
         var cdb = new CaskDB(
-            new CaskDbOpts
+            new()
             {
                 DatabaseDirectory = dbDir,
                 DataFileSizeThresholdInBytes = 5 * 1024 * 1024
@@ -82,7 +82,7 @@ class Program
         var keylist = Enumerable.Range(0, keyCount).Select(x => (x % 10000).ToString()).ToArray();
 
         var cdb = new CaskDB(
-            new CaskDbOpts
+            new()
             {
                 DatabaseDirectory = dbDir,
                 DataFileSizeThresholdInBytes = 5 * 1024 * 1024,
@@ -106,7 +106,7 @@ class Program
         var keylist = Enumerable.Range(0, keyCount).Select(x => (x % 10000).ToString()).ToArray();
 
         var cdb = new CaskDB(
-            new CaskDbOpts
+            new()
             {
                 DatabaseDirectory = dbDir,
                 DataFileSizeThresholdInBytes = 5 * 1024 * 1024
